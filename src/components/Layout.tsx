@@ -20,11 +20,11 @@ const Layout = ({ children }: LayoutProps) => {
       <header className="sticky top-0 z-50 border-b border-border bg-card/80 backdrop-blur-sm">
         <div className="container mx-auto flex h-16 items-center justify-between px-4">
           <Link to="/" className="flex items-center gap-3">
-            {/* ✅ SAME image as PDF, from public/ */}
-            <img src="/picacity-logo.png" alt="Picacity" className="h-8" />
             <span className="text-xl font-semibold text-foreground">
               Picacity
             </span>
+            <img src="/picacity-logo-pdf.png" alt="Picacity" className="h-8" />
+            
           </Link>
 
           <nav className="flex items-center gap-6">

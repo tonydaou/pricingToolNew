@@ -1,5 +1,6 @@
 import ExcelJS from "exceljs";
 import { ClientQuoteData, generateClientQuoteSummary, formatCurrencyValue, getCurrencyByCode } from "./clientQuotePDF";
+import { calculateLineItemPricing } from "./pricingCalculations";
 
 // Brand colors
 const BRAND_PRIMARY = "1E3A5F"; // Dark blue
@@ -23,10 +24,10 @@ export const generateClientQuoteExcel = async (data: ClientQuoteData): Promise<B
   // ============ Sheet 1: Quote Summary ============
   const summarySheet = workbook.addWorksheet("Quote Summary");
   
-  // Set column widths
+  // Set column widths for 2-column layout (Yearly and Total Payment)
   summarySheet.columns = [
     { width: 45 },
-    { width: 18 },
+    { width: 25 },
     { width: 25 },
   ];
 
@@ -83,7 +84,7 @@ export const generateClientQuoteExcel = async (data: ClientQuoteData): Promise<B
       cell.border = {
         bottom: { style: "medium", color: { argb: BRAND_PRIMARY } },
       };
-      cell.alignment = { horizontal: index === 2 ? "right" : "left", vertical: "middle" };
+      cell.alignment = { horizontal: index >= 1 ? "right" : "left", vertical: "middle" };
     });
     summarySheet.getRow(currentRow).height = 24;
     currentRow++;
@@ -99,7 +100,7 @@ export const generateClientQuoteExcel = async (data: ClientQuoteData): Promise<B
       if (isAlternate) {
         cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: GRAY_LIGHT } };
       }
-      cell.alignment = { horizontal: index === 2 ? "right" : "left", vertical: "middle" };
+      cell.alignment = { horizontal: index >= 1 ? "right" : "left", vertical: "middle" };
       cell.border = {
         bottom: { style: "thin", color: { argb: GRAY_BORDER } },
       };
@@ -107,59 +108,50 @@ export const generateClientQuoteExcel = async (data: ClientQuoteData): Promise<B
     currentRow++;
   };
 
+  // SELECTED MODULES
+  addSectionHeader("SELECTED MODULES");
+  addTableHeader(["Module", `Yearly Price (${currencyInfo.code})`, `Total Commitment Price (${currencyInfo.code})`]);
+  
+  // Check which modules are included
+  const hasSustainability = data.lineItems.some(item => item.sustainability);
+  const hasSecurity = data.lineItems.some(item => item.security);
+  const hasMobility = data.lineItems.some(item => item.mobility);
+  const hasInsight = data.lineItems.some(item => item.insight);
+  
+  addDataRow(["Sustainability", hasSustainability ? "Included" : "Not included", hasSustainability ? "Included in subscription" : "-"]);
+  addDataRow(["Security", hasSecurity ? "Included" : "Not included", hasSecurity ? "Included in subscription" : "-"], true);
+  addDataRow(["Mobility", hasMobility ? "Included" : "Not included", hasMobility ? "Included in subscription" : "-"]);
+  addDataRow(["Insight", hasInsight ? "Included" : "Not included", hasInsight ? "Included in subscription" : "-"], true);
+  
+  // Support plan
+  const supportPlan = data.lineItems.length > 0 ? data.lineItems[0].supportPlan : "8x5";
+  addDataRow(["Support Plan", "Included", "Included in subscription"]);
+
+  currentRow++;
+
   // ANNUAL PLATFORM FEE
   addSectionHeader("ANNUAL PLATFORM FEE");
-  addTableHeader(["Item", "Included", `Annual Price (${currencyInfo.code})`]);
-  addDataRow(["Platform Subscription Fee (Yearly)", "Y", formatCurrency(summary.yearlyPlatformFee)]);
-  
-  currentRow++;
+  addTableHeader(["Item", `Yearly Price (${currencyInfo.code})`, `Total Commitment Price (${currencyInfo.code})`]);
+  const yearlyPlatform = summary.yearlyPlatformFee;
+  const totalPlatform = yearlyPlatform * data.commitmentYears;
+  const totalPlatformWithDiscount = totalPlatform * (1 - summary.discountPercent / 100);
+  addDataRow(["Platform Subscription Fee", formatCurrency(yearlyPlatform), formatCurrency(totalPlatformWithDiscount)]);
 
-  // SUBSCRIPTION FEES - YEAR 1
-  addSectionHeader("SUBSCRIPTION FEES - YEAR 1");
-  addTableHeader(["Item", "Included", `Price (${currencyInfo.code})`]);
-  addDataRow(["Sustainability", summary.hasSustainability ? "Y" : "N", summary.hasSustainability ? "Included" : "-"]);
-  addDataRow(["Security", summary.hasSecurity ? "Y" : "N", summary.hasSecurity ? "Included" : "-"], true);
-  addDataRow(["Mobility", summary.hasMobility ? "Y" : "N", summary.hasMobility ? "Included" : "-"]);
-  addDataRow(["Insight", summary.hasInsight ? "Y" : "N", summary.hasInsight ? "Included" : "-"], true);
-  addDataRow(["Support Plan", "Y", summary.supportPlan]);
-  
   currentRow++;
-  
-  // Year 1 Subscription Total
-  const totalRow = summarySheet.getRow(currentRow);
-  totalRow.getCell(1).value = "Year 1 Subscription Total";
-  totalRow.getCell(1).font = { bold: true, size: 11, color: { argb: BRAND_PRIMARY } };
-  totalRow.getCell(3).value = formatCurrency(summary.yearOneSubscription);
-  totalRow.getCell(3).font = { bold: true, size: 11, color: { argb: BRAND_PRIMARY } };
-  totalRow.getCell(3).alignment = { horizontal: "right" };
-  [1, 2, 3].forEach(col => {
-    totalRow.getCell(col).border = {
-      top: { style: "medium", color: { argb: BRAND_PRIMARY } },
-      bottom: { style: "medium", color: { argb: BRAND_PRIMARY } },
-    };
-  });
-  currentRow += 2;
-
-  // Year 2+ section if multi-year
-  if (data.commitmentYears > 1) {
-    addSectionHeader("SUBSCRIPTION FEES - YEAR 2 ONWARDS");
-    addTableHeader(["Item", "Included", `Annual Price (${currencyInfo.code})`]);
-    addDataRow(["Annual Subscription (recurring)", "Y", formatCurrency(summary.yearTwoOnwardsSubscription)]);
-    currentRow++;
-  }
 
   // QUOTE SUMMARY
   addSectionHeader("QUOTE SUMMARY");
   
   const subscriptionGrandTotal = (summary.yearOneSubscription - summary.yearlyPlatformFee) * data.commitmentYears;
   const platformFeeTotal = summary.yearlyPlatformFee * data.commitmentYears;
+  const discountMultiplier = (1 - summary.discountPercent / 100);
   
-  addDataRow([`Platform Fee (${data.commitmentYears} Year${data.commitmentYears > 1 ? "s" : ""})`, "", formatCurrency(platformFeeTotal)]);
-  addDataRow([`Subscription Total (${data.commitmentYears} Year${data.commitmentYears > 1 ? "s" : ""})`, "", formatCurrency(subscriptionGrandTotal)], true);
-  addDataRow(["Total Price", "", formatCurrency(summary.totalBeforeDiscount)], false, true);
+  addDataRow([`Platform Fee (${data.commitmentYears} Year${data.commitmentYears > 1 ? "s" : ""})`, formatCurrency(summary.yearlyPlatformFee), formatCurrency(platformFeeTotal * discountMultiplier)]);
+  addDataRow([`Subscription Total (${data.commitmentYears} Year${data.commitmentYears > 1 ? "s" : ""})`, formatCurrency(summary.yearOneSubscription - summary.yearlyPlatformFee), formatCurrency(subscriptionGrandTotal * discountMultiplier)], true);
+  addDataRow(["Total Price", formatCurrency(summary.totalBeforeDiscount / data.commitmentYears), formatCurrency(summary.totalBeforeDiscount)], false, true);
 
   if (summary.discountPercent > 0) {
-    addDataRow([`Commitment Discount (${summary.discountPercent}%)`, "", `- ${formatCurrency(summary.discountAmount)}`], true);
+    addDataRow([`Commitment Discount (${summary.discountPercent}%)`, formatCurrency(summary.discountAmount / data.commitmentYears), formatCurrency(summary.discountAmount)], true);
   }
 
   currentRow++;
@@ -167,7 +159,7 @@ export const generateClientQuoteExcel = async (data: ClientQuoteData): Promise<B
   // GRAND TOTAL - Highlighted
   summarySheet.mergeCells(`A${currentRow}:B${currentRow}`);
   const grandTotalLabelCell = summarySheet.getCell(`A${currentRow}`);
-  grandTotalLabelCell.value = "PRICE AFTER DISCOUNT";
+  grandTotalLabelCell.value = "EQUIVALENT AFTER DISCOUNT";
   grandTotalLabelCell.font = { bold: true, size: 14, color: { argb: WHITE } };
   grandTotalLabelCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: BRAND_PRIMARY } };
   grandTotalLabelCell.alignment = { horizontal: "left", vertical: "middle" };
@@ -178,6 +170,11 @@ export const generateClientQuoteExcel = async (data: ClientQuoteData): Promise<B
   grandTotalValueCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: BRAND_PRIMARY } };
   grandTotalValueCell.alignment = { horizontal: "right", vertical: "middle" };
   summarySheet.getRow(currentRow).height = 32;
+  
+  currentRow++;
+
+  // Add yearly equivalent row for clarity
+  addDataRow(["Yearly Equivalent", formatCurrency(summary.finalTotal / data.commitmentYears), ""], false, true);
   
   currentRow += 2;
 
@@ -191,7 +188,8 @@ export const generateClientQuoteExcel = async (data: ClientQuoteData): Promise<B
   const lineItemsSheet = workbook.addWorksheet("Line Items");
   
   lineItemsSheet.columns = [
-    { width: 22 },  // Asset Type
+    { width: 25 },  // Line Item
+    { width: 20 },  // Asset Type
     { width: 28 },  // Description
     { width: 12 },  // Size
     { width: 10 },  // Quantity
@@ -205,7 +203,7 @@ export const generateClientQuoteExcel = async (data: ClientQuoteData): Promise<B
   ];
 
   // Header row
-  lineItemsSheet.mergeCells("A1:K1");
+  lineItemsSheet.mergeCells("A1:L1");
   const lineItemsHeader = lineItemsSheet.getCell("A1");
   lineItemsHeader.value = "LINE ITEMS DETAIL";
   lineItemsHeader.font = { bold: true, size: 20, color: { argb: WHITE } };
@@ -215,7 +213,7 @@ export const generateClientQuoteExcel = async (data: ClientQuoteData): Promise<B
 
   // Table headers
   const headers = [
-    "Asset Type", "Description", "Size (sqm)", "Quantity", "Sustainability",
+    "Line Item", "Asset Type", "Description", "Size (sqm)", "Quantity", "Sustainability",
     "Security", "Sec. Channels", "Mobility", "Mob. Channels", "Insight", "Support"
   ];
   
@@ -233,28 +231,32 @@ export const generateClientQuoteExcel = async (data: ClientQuoteData): Promise<B
   lineItemsSheet.getRow(3).height = 28;
 
   // Data rows
+  let currentDataRow = 4;
+  
   data.lineItems.forEach((item, index) => {
-    const row = lineItemsSheet.getRow(index + 4);
-    const isAlternate = index % 2 === 1;
+    // Main line item
+    const mainRow = lineItemsSheet.getRow(currentDataRow);
+    const isAlternate = currentDataRow % 2 === 0;
     
-    const values = [
-      item.assetType,
+    const mainValues = [
+      `Line Item ${index + 1}`,
+      item.subMainAsset || item.assetType || "-",
       item.description || "-",
-      item.size,
-      item.quantity,
+      item.size || 0,
+      item.quantity || 1,
       item.sustainability ? "Y" : "N",
       item.security ? "Y" : "N",
-      item.securityChannels,
+      item.securityChannels || 0,
       item.mobility ? "Y" : "N",
-      item.mobilityChannels,
+      item.mobilityChannels || 0,
       item.insight ? "Y" : "N",
-      item.supportPlan,
+      item.supportPlan || "-",
     ];
     
-    values.forEach((value, colIndex) => {
-      const cell = row.getCell(colIndex + 1);
+    mainValues.forEach((value, colIndex) => {
+      const cell = mainRow.getCell(colIndex + 1);
       cell.value = value;
-      cell.font = { size: 10 };
+      cell.font = { bold: true, size: 10 };
       cell.alignment = { horizontal: "center", vertical: "middle" };
       if (isAlternate) {
         cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: GRAY_LIGHT } };
@@ -265,6 +267,46 @@ export const generateClientQuoteExcel = async (data: ClientQuoteData): Promise<B
         right: { style: "thin", color: { argb: GRAY_BORDER } },
       };
     });
+    currentDataRow++;
+
+    // Sub-line items if they exist
+    if (item.subLineItems && item.subLineItems.length > 0) {
+      item.subLineItems.forEach((subItem, subIndex) => {
+        const subRow = lineItemsSheet.getRow(currentDataRow);
+        const isSubAlternate = currentDataRow % 2 === 0;
+        
+        const subValues = [
+          `  └─ Sub ${subIndex + 1}`,
+          subItem.assetType || "-",
+          subItem.description || "-",
+          subItem.size || 0,
+          subItem.quantity || 1,
+          subItem.sustainability ? "Y" : "N",
+          subItem.security ? "Y" : "N",
+          subItem.securityChannels || 0,
+          subItem.mobility ? "Y" : "N",
+          subItem.mobilityChannels || 0,
+          subItem.insight ? "Y" : "N",
+          subItem.supportPlan || "-",
+        ];
+        
+        subValues.forEach((value, colIndex) => {
+          const cell = subRow.getCell(colIndex + 1);
+          cell.value = value;
+          cell.font = { size: 10, italic: true };
+          cell.alignment = { horizontal: "center", vertical: "middle" };
+          if (isSubAlternate) {
+            cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "F0F4F8" } };
+          }
+          cell.border = {
+            bottom: { style: "thin", color: { argb: GRAY_BORDER } },
+            left: { style: "thin", color: { argb: GRAY_BORDER } },
+            right: { style: "thin", color: { argb: GRAY_BORDER } },
+          };
+        });
+        currentDataRow++;
+      });
+    }
   });
 
   // Generate the Excel file as a Blob

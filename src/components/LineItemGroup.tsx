@@ -122,13 +122,14 @@ const LineItemGroup = ({
               <div className="space-y-2">
                 <Label className="text-primary font-semibold">Sub Main Asset</Label>
                 <Select
-                  value={item.subMainAsset || ""}
-                  onValueChange={(value) => onUpdate({ subMainAsset: value })}
+                  value={item.subMainAsset || "none"}
+                  onValueChange={(value) => onUpdate({ subMainAsset: value === "none" ? "" : value })}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select sub main asset type" />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="none">None</SelectItem>
                     {subMainAssetOptions.map((type) => (
                       <SelectItem key={type} value={type}>
                         {type}
@@ -137,6 +138,20 @@ const LineItemGroup = ({
                   </SelectContent>
                 </Select>
               </div>
+              {item.subMainAsset && (
+                <div className="space-y-2">
+                  <Label className="text-primary font-semibold">Actions</Label>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2 w-full"
+                    onClick={addSubLineItem}
+                  >
+                    <Plus className="h-4 w-4" />
+                    Add Sub Line Item to {item.subMainAsset}
+                  </Button>
+                </div>
+              )}
             </div>
           )}
 
@@ -380,20 +395,8 @@ const LineItemGroup = ({
             </>
           )}
 
-          {/* Add Sub Line Item button for hierarchical mode */}
-          {isHierarchicalMode && item.subMainAsset && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-2 mt-2"
-              onClick={addSubLineItem}
-            >
-              <Plus className="h-4 w-4" />
-              Add Sub Line Item to {item.subMainAsset}
-            </Button>
-          )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
 
       {/* Sub Line Items */}
       {isHierarchicalMode && item.subLineItems && item.subLineItems.length > 0 && (
