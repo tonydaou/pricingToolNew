@@ -21,7 +21,7 @@ const Layout = ({ children }: LayoutProps) => {
         <div className="container mx-auto flex h-16 items-center justify-between px-4">
           <Link to="/" className="flex items-center gap-3">
             <span className="text-xl font-semibold text-foreground">
-              Picacity
+              
             </span>
             <img src="/picacity-logo-pdf.png" alt="Picacity" className="h-8" />
             
