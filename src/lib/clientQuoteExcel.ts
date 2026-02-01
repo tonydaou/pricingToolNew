@@ -112,19 +112,47 @@ export const generateClientQuoteExcel = async (data: ClientQuoteData): Promise<B
   addSectionHeader("SELECTED MODULES");
   addTableHeader(["Module", `Yearly Price (${currencyInfo.code})`, `Total Commitment Price (${currencyInfo.code})`]);
   
-  // Check which modules are included
-  const hasSustainability = data.lineItems.some(item => item.sustainability);
-  const hasSecurity = data.lineItems.some(item => item.security);
-  const hasMobility = data.lineItems.some(item => item.mobility);
-  const hasInsight = data.lineItems.some(item => item.insight);
+  // Check which modules are included (including sub-line items)
+  const hasSustainability = data.lineItems.some(item => 
+    item.sustainability || (item.subLineItems && item.subLineItems.some(sub => sub.sustainability))
+  );
+  const hasSecurity = data.lineItems.some(item => 
+    item.security || (item.subLineItems && item.subLineItems.some(sub => sub.security))
+  );
+  const hasMobility = data.lineItems.some(item => 
+    item.mobility || (item.subLineItems && item.subLineItems.some(sub => sub.mobility))
+  );
+  const hasInsight = data.lineItems.some(item => 
+    item.insight || (item.subLineItems && item.subLineItems.some(sub => sub.insight))
+  );
   
   addDataRow(["Sustainability", hasSustainability ? "Included" : "Not included", hasSustainability ? "Included in subscription" : "-"]);
   addDataRow(["Security", hasSecurity ? "Included" : "Not included", hasSecurity ? "Included in subscription" : "-"], true);
   addDataRow(["Mobility", hasMobility ? "Included" : "Not included", hasMobility ? "Included in subscription" : "-"]);
   addDataRow(["Insight", hasInsight ? "Included" : "Not included", hasInsight ? "Included in subscription" : "-"], true);
   
-  // Support plan
-  const supportPlan = data.lineItems.length > 0 ? data.lineItems[0].supportPlan : "8x5";
+  // Support plan - get the highest tier from all line items and sub-line items
+  const supportPlanOrder = ["24x7", "16x5", "8x5"];
+  let highestSupportPlan = "8x5";
+  
+  data.lineItems.forEach(item => {
+    if (item.subLineItems && item.subLineItems.length > 0) {
+      item.subLineItems.forEach(sub => {
+        const currentIndex = supportPlanOrder.indexOf(sub.supportPlan);
+        const highestIndex = supportPlanOrder.indexOf(highestSupportPlan);
+        if (currentIndex < highestIndex) {
+          highestSupportPlan = sub.supportPlan;
+        }
+      });
+    } else {
+      const currentIndex = supportPlanOrder.indexOf(item.supportPlan);
+      const highestIndex = supportPlanOrder.indexOf(highestSupportPlan);
+      if (currentIndex < highestIndex) {
+        highestSupportPlan = item.supportPlan;
+      }
+    }
+  });
+  
   addDataRow(["Support Plan", "Included", "Included in subscription"]);
 
   currentRow++;

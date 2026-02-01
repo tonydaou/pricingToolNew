@@ -133,13 +133,27 @@ export const calculateQuoteTotals = (lineItems: LineItem[], rates: PricingRates)
   let grandTotal = 0;
 
   lineItems.forEach((item) => {
-    const pricing = calculateLineItemPricing(item, rates);
-    totalSustainability += pricing.sustainabilityCost;
-    totalSecurity += pricing.securityCost;
-    totalMobility += pricing.mobilityCost;
-    totalInsight += pricing.insightCost;
-    totalSupport += pricing.supportCost;
-    grandTotal += pricing.lineTotal;
+    // If item has sub-line items, calculate pricing for sub-items instead
+    if (item.subLineItems && item.subLineItems.length > 0) {
+      item.subLineItems.forEach((subItem) => {
+        const pricing = calculateLineItemPricing(subItem, rates);
+        totalSustainability += pricing.sustainabilityCost;
+        totalSecurity += pricing.securityCost;
+        totalMobility += pricing.mobilityCost;
+        totalInsight += pricing.insightCost;
+        totalSupport += pricing.supportCost;
+        grandTotal += pricing.lineTotal;
+      });
+    } else {
+      // Calculate pricing for main item if no sub-items
+      const pricing = calculateLineItemPricing(item, rates);
+      totalSustainability += pricing.sustainabilityCost;
+      totalSecurity += pricing.securityCost;
+      totalMobility += pricing.mobilityCost;
+      totalInsight += pricing.insightCost;
+      totalSupport += pricing.supportCost;
+      grandTotal += pricing.lineTotal;
+    }
   });
 
   return {
