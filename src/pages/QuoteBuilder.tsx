@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Plus, Save, FileText, FileSpreadsheet } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { LineItem } from "@/types/pricing";
 import { calculateQuoteTotals, defaultPricingRates } from "@/lib/pricingCalculations";
@@ -15,7 +15,7 @@ import { pdf } from "@react-pdf/renderer";
 import ClientQuotePDF from "@/components/ClientQuotePDF";
 import { ClientQuoteData } from "@/lib/clientQuotePDF";
 import { generateClientQuoteExcel } from "@/lib/clientQuoteExcel";
-import { currencies, CurrencyCode, getCurrencyByCode, formatCurrencyValue } from "@/lib/currencies";
+import { getCurrencies, CurrencyCode, getCurrencyByCode, formatCurrencyValue, updateCurrencyRates } from "@/lib/currencies";
 import LineItemGroup from "@/components/LineItemGroup";
 
 const QuoteBuilder = () => {
@@ -41,6 +41,20 @@ const QuoteBuilder = () => {
   const [discountPercent, setDiscountPercent] = useState<number>(0);
   const [mainAsset, setMainAsset] = useState<string>("");
   const [currency, setCurrency] = useState<CurrencyCode>("USD");
+  
+  // Fetch real-time currency rates on component mount
+  useEffect(() => {
+    const fetchRates = async () => {
+      try {
+        await updateCurrencyRates();
+        console.log("Currency rates updated successfully");
+      } catch (error) {
+        console.error("Failed to update currency rates:", error);
+      }
+    };
+    
+    fetchRates();
+  }, []);
   
   const currencyInfo = getCurrencyByCode(currency);
   const formatCurrency = (amount: number, showDecimals = false) => 
@@ -362,7 +376,7 @@ const QuoteBuilder = () => {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {currencies.map((c) => (
+                    {getCurrencies().map((c) => (
                       <SelectItem key={c.code} value={c.code}>
                         {c.code} - {c.name}
                       </SelectItem>

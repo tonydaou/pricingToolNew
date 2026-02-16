@@ -1,3 +1,5 @@
+import { updateCurrenciesWithRealTimeRates } from "./exchangeRates";
+
 export interface Currency {
   code: string;
   name: string;
@@ -5,7 +7,8 @@ export interface Currency {
   rate: number; // Rate relative to USD (1 USD = X currency)
 }
 
-export const currencies: Currency[] = [
+// Base currencies with fallback rates (will be updated with real-time rates)
+export const baseCurrencies: Currency[] = [
   { code: "USD", name: "US Dollar", symbol: "$", rate: 1 },
   { code: "SAR", name: "Saudi Riyal", symbol: "SAR ", rate: 3.75 },
   { code: "KWD", name: "Kuwaiti Dinar", symbol: "KWD ", rate: 0.3061 },
@@ -16,6 +19,21 @@ export const currencies: Currency[] = [
   { code: "JOD", name: "Jordanian Dinar", symbol: "JOD ", rate: 0.709 },
   { code: "CAD", name: "Canadian Dollar", symbol: "C$", rate: 1.35 },
 ];
+
+// This will be updated with real-time rates
+let currencies: Currency[] = [...baseCurrencies];
+
+// Function to update currencies with real-time rates
+export const updateCurrencyRates = async (): Promise<void> => {
+  try {
+    currencies = await updateCurrenciesWithRealTimeRates(baseCurrencies);
+  } catch (error) {
+    console.error("Failed to update currency rates:", error);
+  }
+};
+
+// Get current currencies (with real-time rates if updated)
+export const getCurrencies = (): Currency[] => currencies;
 
 export const getCurrencyByCode = (code: string): Currency => {
   return currencies.find((c) => c.code === code) || currencies[0];
