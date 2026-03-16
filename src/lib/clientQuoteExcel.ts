@@ -1,376 +1,559 @@
 import ExcelJS from "exceljs";
-import { ClientQuoteData, generateClientQuoteSummary, formatCurrencyValue, getCurrencyByCode } from "./clientQuotePDF";
-import { calculateLineItemPricing } from "./pricingCalculations";
+import {
+  ClientQuoteData,
+  generateClientQuoteSummary,
+  getCurrencyByCode,
+} from "./clientQuotePDF";
 
 // Brand colors
-const BRAND_PRIMARY = "1E3A5F"; // Dark blue
-const BRAND_LIGHT = "E8F0F8"; // Light blue background
-const BRAND_ACCENT = "2563EB"; // Accent blue
+const BRAND_PRIMARY = "1E3A5F";
+const BRAND_LIGHT = "E8F0F8";
+const BRAND_ACCENT = "2563EB";
 const WHITE = "FFFFFF";
 const GRAY_LIGHT = "F8FAFC";
 const GRAY_BORDER = "E2E8F0";
 
-export const generateClientQuoteExcel = async (data: ClientQuoteData): Promise<Blob> => {
+export const generateClientQuoteExcel = async (
+  data: ClientQuoteData
+): Promise<Blob> => {
   const summary = generateClientQuoteSummary(data);
   const currencyInfo = getCurrencyByCode(summary.currency);
   const currencyLabel = `${currencyInfo.code} (${currencyInfo.name})`;
-  
-  const formatCurrency = (amount: number) => formatCurrencyValue(amount, summary.currency, { showDecimals: true });
-  
+
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "Picacity";
   workbook.created = new Date();
+  workbook.calcProperties.fullCalcOnLoad = true;
 
-  // ============ Sheet 1: Quote Summary ============
+  // =========================================================
+  // SHEET 1: QUOTE SUMMARY
+  // =========================================================
   const summarySheet = workbook.addWorksheet("Quote Summary");
-  
-  // Set column widths for 2-column layout (Yearly and Total Payment)
-  summarySheet.columns = [
-    { width: 45 },
-    { width: 25 },
-    { width: 25 },
-  ];
 
-  // Header row with branding
+  summarySheet.columns = [{ width: 45 }, { width: 25 }, { width: 25 }];
+
+  const MONEY_FORMAT = "#,##0.00";
+  const PERCENT_FORMAT = "0.00%";
+
+  const toNumericCurrency = (amount: number): number => {
+    const currency = getCurrencyByCode(data.currency);
+    return amount * currency.rate;
+  };
+
+  const setMoneyCell = (cell: ExcelJS.Cell) => {
+    cell.numFmt = MONEY_FORMAT;
+    cell.alignment = { horizontal: "right", vertical: "middle" };
+  };
+
+  const setPercentCell = (cell: ExcelJS.Cell) => {
+    cell.numFmt = PERCENT_FORMAT;
+    cell.alignment = { horizontal: "right", vertical: "middle" };
+  };
+
+  // Header
   summarySheet.mergeCells("A1:C1");
   const headerCell = summarySheet.getCell("A1");
   headerCell.value = "CLIENT QUOTE";
   headerCell.font = { bold: true, size: 20, color: { argb: WHITE } };
-  headerCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: BRAND_PRIMARY } };
+  headerCell.fill = {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: BRAND_PRIMARY },
+  };
   headerCell.alignment = { horizontal: "center", vertical: "middle" };
   summarySheet.getRow(1).height = 40;
 
-  // Quote details section
   let currentRow = 3;
-  
+
   const addInfoRow = (label: string, value: string) => {
     const row = summarySheet.getRow(currentRow);
+
     row.getCell(1).value = label;
     row.getCell(1).font = { bold: true, color: { argb: BRAND_PRIMARY } };
+
     row.getCell(2).value = value;
     summarySheet.mergeCells(`B${currentRow}:C${currentRow}`);
+
     currentRow++;
+    return currentRow - 1;
   };
 
-  addInfoRow("Quote Name:", data.quoteName);
-  addInfoRow("Date:", new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }));
-  addInfoRow("Client:", data.clientName);
-  addInfoRow("Main Asset:", data.mainAsset);
-  addInfoRow("Commitment Period:", `${data.commitmentYears} Year${data.commitmentYears > 1 ? "s" : ""}`);
-  addInfoRow("Currency:", currencyLabel);
-
-  currentRow++;
-
-  // Section header helper
   const addSectionHeader = (title: string) => {
     summarySheet.mergeCells(`A${currentRow}:C${currentRow}`);
     const cell = summarySheet.getCell(`A${currentRow}`);
     cell.value = title;
     cell.font = { bold: true, size: 12, color: { argb: WHITE } };
-    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: BRAND_ACCENT } };
+    cell.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: BRAND_ACCENT },
+    };
     cell.alignment = { horizontal: "left", vertical: "middle" };
     summarySheet.getRow(currentRow).height = 28;
+
     currentRow++;
+    return currentRow - 1;
   };
 
-  // Table header helper
   const addTableHeader = (headers: string[]) => {
     const row = summarySheet.getRow(currentRow);
+
     headers.forEach((header, index) => {
       const cell = row.getCell(index + 1);
       cell.value = header;
       cell.font = { bold: true, size: 11, color: { argb: BRAND_PRIMARY } };
-      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: BRAND_LIGHT } };
+      cell.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: BRAND_LIGHT },
+      };
       cell.border = {
         bottom: { style: "medium", color: { argb: BRAND_PRIMARY } },
       };
-      cell.alignment = { horizontal: index >= 1 ? "right" : "left", vertical: "middle" };
+      cell.alignment = {
+        horizontal: index >= 1 ? "right" : "left",
+        vertical: "middle",
+      };
     });
+
     summarySheet.getRow(currentRow).height = 24;
     currentRow++;
+    return currentRow - 1;
   };
 
-  // Helper to get raw numeric value (without currency formatting)
-  const getNumericValue = (amount: number, currencyCode: string): number => {
-    const currency = getCurrencyByCode(currencyCode);
-    return amount * currency.rate;
-  };
+  type CellValueInput =
+    | string
+    | number
+    | {
+        formula: string;
+        result: number;
+        kind?: "money" | "percent" | "number";
+      };
 
-  // Data row helper - updated to handle numeric cells and formulas
-  const addDataRow = (values: (string | number | { formula: string; result: number })[], isAlternate = false, isBold = false) => {
+  const addDataRow = (
+    values: CellValueInput[],
+    isAlternate = false,
+    isBold = false
+  ) => {
+    const rowNumber = currentRow;
     const row = summarySheet.getRow(currentRow);
+
     values.forEach((value, index) => {
       const cell = row.getCell(index + 1);
-      
-      // Handle different value types
-      if (typeof value === 'object' && value.formula) {
-        // Excel formula
+
+      if (typeof value === "object" && value !== null && "formula" in value) {
         cell.value = {
           formula: value.formula,
-          result: value.result
+          result: value.result,
         };
-        cell.numFmt = index >= 1 ? '#,##0.00' : 'General'; // Number format without $ sign
-      } else if (typeof value === 'number') {
-        // Numeric value
+
+        if (value.kind === "percent") {
+          setPercentCell(cell);
+        } else if (value.kind === "number") {
+          cell.alignment = { horizontal: "right", vertical: "middle" };
+        } else {
+          setMoneyCell(cell);
+        }
+      } else if (typeof value === "number") {
         cell.value = value;
-        cell.numFmt = index >= 1 ? '#,##0.00' : 'General'; // Number format without $ sign
+
+        if (index >= 1) {
+          setMoneyCell(cell);
+        } else {
+          cell.alignment = { horizontal: "left", vertical: "middle" };
+        }
       } else {
-        // Text value
         cell.value = value;
-        cell.numFmt = 'General';
+        cell.alignment = {
+          horizontal: index >= 1 ? "right" : "left",
+          vertical: "middle",
+        };
       }
-      
-      // Styling
+
       cell.font = { bold: isBold, size: 11 };
+
       if (isAlternate) {
-        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: GRAY_LIGHT } };
+        cell.fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: GRAY_LIGHT },
+        };
       }
-      cell.alignment = { horizontal: index >= 1 ? "right" : "left", vertical: "middle" };
+
       cell.border = {
         bottom: { style: "thin", color: { argb: GRAY_BORDER } },
       };
     });
+
     currentRow++;
+    return rowNumber;
   };
 
+  // Quote info
+  addInfoRow("Quote Name:", data.quoteName);
+  addInfoRow(
+    "Date:",
+    new Date().toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    })
+  );
+  addInfoRow("Client:", data.clientName);
+  addInfoRow("Main Asset:", data.mainAsset);
+  addInfoRow(
+    "Commitment Period:",
+    `${data.commitmentYears} Year${data.commitmentYears > 1 ? "s" : ""}`
+  );
+  addInfoRow("Currency:", currencyLabel);
+
+  currentRow++;
+
+  // =========================================================
   // SELECTED MODULES
+  // =========================================================
   addSectionHeader("SELECTED MODULES");
-  addTableHeader(["Module", `Yearly Price (${currencyInfo.code})`, `Total Commitment Price (${currencyInfo.code})`]);
-  
-  // Check which modules are included (including sub-line items)
-  const hasSustainability = data.lineItems.some(item => 
-    item.sustainability || (item.subLineItems && item.subLineItems.some(sub => sub.sustainability))
+  addTableHeader([
+    "Module",
+    `Yearly Price (${currencyInfo.code})`,
+    `Total Commitment Price (${currencyInfo.code})`,
+  ]);
+
+  const hasSustainability = data.lineItems.some(
+    (item) =>
+      item.sustainability ||
+      (item.subLineItems &&
+        item.subLineItems.some((sub) => sub.sustainability))
   );
-  const hasSecurity = data.lineItems.some(item => 
-    item.security || (item.subLineItems && item.subLineItems.some(sub => sub.security))
+
+  const hasSecurity = data.lineItems.some(
+    (item) =>
+      item.security ||
+      (item.subLineItems && item.subLineItems.some((sub) => sub.security))
   );
-  const hasMobility = data.lineItems.some(item => 
-    item.mobility || (item.subLineItems && item.subLineItems.some(sub => sub.mobility))
+
+  const hasMobility = data.lineItems.some(
+    (item) =>
+      item.mobility ||
+      (item.subLineItems && item.subLineItems.some((sub) => sub.mobility))
   );
-  const hasInsight = data.lineItems.some(item => 
-    item.insight || (item.subLineItems && item.subLineItems.some(sub => sub.insight))
+
+  const hasInsight = data.lineItems.some(
+    (item) =>
+      item.insight ||
+      (item.subLineItems && item.subLineItems.some((sub) => sub.insight))
   );
-  
-  addDataRow(["Sustainability", hasSustainability ? "Included" : "Not included", hasSustainability ? "Included in subscription" : "-"]);
-  addDataRow(["Security", hasSecurity ? "Included" : "Not included", hasSecurity ? "Included in subscription" : "-"], true);
-  addDataRow(["Mobility", hasMobility ? "Included" : "Not included", hasMobility ? "Included in subscription" : "-"]);
-  addDataRow(["Insight", hasInsight ? "Included" : "Not included", hasInsight ? "Included in subscription" : "-"], true);
-  
-  // Support plan - get the highest tier from all line items and sub-line items
-  const supportPlanOrder = ["24x7", "16x5", "8x5"];
-  let highestSupportPlan = "8x5";
-  
-  data.lineItems.forEach(item => {
-    if (item.subLineItems && item.subLineItems.length > 0) {
-      item.subLineItems.forEach(sub => {
-        const currentIndex = supportPlanOrder.indexOf(sub.supportPlan);
-        const highestIndex = supportPlanOrder.indexOf(highestSupportPlan);
-        if (currentIndex < highestIndex) {
-          highestSupportPlan = sub.supportPlan;
-        }
-      });
-    } else {
-      const currentIndex = supportPlanOrder.indexOf(item.supportPlan);
-      const highestIndex = supportPlanOrder.indexOf(highestSupportPlan);
-      if (currentIndex < highestIndex) {
-        highestSupportPlan = item.supportPlan;
-      }
-    }
-  });
-  
+
+  addDataRow([
+    "Sustainability",
+    hasSustainability ? "Included" : "Not included",
+    hasSustainability ? "Included in subscription" : "-",
+  ]);
+  addDataRow(
+    [
+      "Security",
+      hasSecurity ? "Included" : "Not included",
+      hasSecurity ? "Included in subscription" : "-",
+    ],
+    true
+  );
+  addDataRow([
+    "Mobility",
+    hasMobility ? "Included" : "Not included",
+    hasMobility ? "Included in subscription" : "-",
+  ]);
+  addDataRow(
+    [
+      "Insight",
+      hasInsight ? "Included" : "Not included",
+      hasInsight ? "Included in subscription" : "-",
+    ],
+    true
+  );
   addDataRow(["Support Plan", "Included", "Included in subscription"]);
 
   currentRow++;
 
+  // =========================================================
   // ANNUAL PLATFORM FEE
+  // =========================================================
   addSectionHeader("ANNUAL PLATFORM FEE");
-  addTableHeader(["Item", `Yearly Price (${currencyInfo.code})`, `Total Commitment Price (${currencyInfo.code})`]);
-  
-  const yearlyPlatform = summary.yearlyPlatformFee;
-  const totalPlatform = yearlyPlatform * data.commitmentYears;
-  const totalPlatformWithDiscount = totalPlatform * (1 - summary.discountPercent / 100);
-  
-  // Add platform fee with numeric values and formula
-  const platformRow = currentRow + 1;
-  addDataRow([
-    "Platform Subscription Fee", 
-    yearlyPlatform, 
-    {
-      formula: `B${platformRow}*${data.commitmentYears}*(1-${summary.discountPercent/100})`,
-      result: totalPlatformWithDiscount
-    }
+  addTableHeader([
+    "Item",
+    `Yearly Price (${currencyInfo.code})`,
+    `Total Commitment Price (${currencyInfo.code})`,
   ]);
+
+  const yearlyPlatformRaw = summary.yearlyPlatformFee;
+  const totalPlatformRaw = yearlyPlatformRaw * data.commitmentYears;
+
+  const yearlyPlatform = toNumericCurrency(yearlyPlatformRaw);
+  const totalPlatform = toNumericCurrency(totalPlatformRaw);
+
+  const platformAnnualRow = addDataRow([
+    "Platform Subscription Fee",
+    yearlyPlatform,
+    {
+      formula: `B${currentRow}*${data.commitmentYears}`,
+      result: totalPlatform,
+      kind: "money",
+    },
+  ]);
+
+  summarySheet.getCell(`C${platformAnnualRow}`).value = {
+    formula: `B${platformAnnualRow}*${data.commitmentYears}`,
+    result: totalPlatform,
+  };
+  setMoneyCell(summarySheet.getCell(`C${platformAnnualRow}`));
 
   currentRow++;
 
+  // =========================================================
   // QUOTE SUMMARY
+  // =========================================================
   addSectionHeader("QUOTE SUMMARY");
-  
-  // Add discount input row
-  const startRow = currentRow;
-  addDataRow(["Discount (%)", summary.discountPercent / 100, ""], false, false);
-  
-  currentRow++;
-  
-  const subscriptionGrandTotal = (summary.yearOneSubscription - summary.yearlyPlatformFee) * data.commitmentYears;
-  const platformFeeTotal = summary.yearlyPlatformFee * data.commitmentYears;
-  const discountMultiplier = (1 - summary.discountPercent / 100);
-  
-  // Add summary rows with formulas
-  addDataRow([
-    `Platform Fee (${data.commitmentYears} Year${data.commitmentYears > 1 ? "s" : ""})`, 
-    getNumericValue(summary.yearlyPlatformFee, data.currency), 
-    getNumericValue(platformFeeTotal * discountMultiplier, data.currency)
-  ]);
-  
-  // Set C20 formula directly
-  const platformCellC20 = summarySheet.getCell(`C20`);
-  platformCellC20.value = {
-    formula: `B20*${data.commitmentYears}`,
-    result: getNumericValue(platformFeeTotal * discountMultiplier, data.currency)
-  };
-  platformCellC20.numFmt = '#,##0.00';
-  
-  // Set C25 formula directly
-  const platformCellC25 = summarySheet.getCell(`C25`);
-  platformCellC25.value = {
-    formula: `B25*${data.commitmentYears}`,
-    result: getNumericValue(platformFeeTotal * discountMultiplier, data.currency)
-  };
-  platformCellC25.numFmt = '#,##0.00';
-  
-  addDataRow([
-    `Subscription Total (${data.commitmentYears} Year${data.commitmentYears > 1 ? "s" : ""})`, 
-    getNumericValue(summary.yearOneSubscription - summary.yearlyPlatformFee, data.currency), 
-    {
-      formula: `B${startRow + 3}*${data.commitmentYears}*(1-B${startRow + 1})`,
-      result: getNumericValue(subscriptionGrandTotal * discountMultiplier, data.currency)
-    }
-  ], true);
-  
-  // Total Price should be sum of Platform Fee + Subscription Total
-  addDataRow([
-    "Total Price", 
-    {
-      formula: `B${startRow + 2}+B${startRow + 3}`,
-      result: getNumericValue(summary.totalBeforeDiscount / data.commitmentYears, data.currency)
-    }, 
-    {
-      formula: `C${startRow + 2}+C${startRow + 3}`,
-      result: getNumericValue(summary.totalBeforeDiscount * discountMultiplier, data.currency)
-    }
-  ], false, true);
 
-  if (summary.discountPercent > 0) {
-    addDataRow([
-      `Commitment Discount (${summary.discountPercent}%)`, 
-      {
-        formula: `B27*B23`,
-        result: getNumericValue(summary.discountAmount / data.commitmentYears, data.currency)
-      }, 
-      {
-        formula: `C27*B23`,
-        result: getNumericValue(summary.discountAmount, data.currency)
-      }
-    ], true);
+  const discountRow = addDataRow(
+    ["Discount (%)", summary.discountPercent / 100, ""],
+    false,
+    false
+  );
+  setPercentCell(summarySheet.getCell(`B${discountRow}`));
+
+  currentRow++;
+
+  const yearlySubscriptionRaw =
+    summary.yearOneSubscription - summary.yearlyPlatformFee;
+  const totalSubscriptionRaw = yearlySubscriptionRaw * data.commitmentYears;
+  const totalBeforeDiscountRaw = totalPlatformRaw + totalSubscriptionRaw;
+  const discountAmountRaw =
+    totalBeforeDiscountRaw * (summary.discountPercent / 100);
+  const finalTotalRaw = totalBeforeDiscountRaw - discountAmountRaw;
+
+  const yearlySubscription = toNumericCurrency(yearlySubscriptionRaw);
+  const totalSubscription = toNumericCurrency(totalSubscriptionRaw);
+  const totalBeforeDiscountPerYear = toNumericCurrency(
+    totalBeforeDiscountRaw / data.commitmentYears
+  );
+  const totalBeforeDiscount = toNumericCurrency(totalBeforeDiscountRaw);
+  const discountAmount = toNumericCurrency(discountAmountRaw);
+  const finalTotal = toNumericCurrency(finalTotalRaw);
+  const yearlyEquivalent = toNumericCurrency(
+    finalTotalRaw / data.commitmentYears
+  );
+
+  const platformSummaryRow = addDataRow([
+    `Platform Fee (${data.commitmentYears} Year${
+      data.commitmentYears > 1 ? "s" : ""
+    })`,
+    yearlyPlatform,
+    {
+      formula: `B${platformSummaryRowPlaceholder()}*${data.commitmentYears}`,
+      result: totalPlatform,
+      kind: "money",
+    },
+  ]);
+
+  function platformSummaryRowPlaceholder() {
+    return currentRow;
   }
 
+  summarySheet.getCell(`C${platformSummaryRow}`).value = {
+    formula: `B${platformSummaryRow}*${data.commitmentYears}`,
+    result: totalPlatform,
+  };
+  setMoneyCell(summarySheet.getCell(`C${platformSummaryRow}`));
+
+  const subscriptionSummaryRow = addDataRow(
+    [
+      `Subscription Total (${data.commitmentYears} Year${
+        data.commitmentYears > 1 ? "s" : ""
+      })`,
+      yearlySubscription,
+      {
+        formula: `B${subscriptionSummaryRowPlaceholder()}*${data.commitmentYears}`,
+        result: totalSubscription,
+        kind: "money",
+      },
+    ],
+    true
+  );
+
+  function subscriptionSummaryRowPlaceholder() {
+    return currentRow;
+  }
+
+  summarySheet.getCell(`C${subscriptionSummaryRow}`).value = {
+    formula: `B${subscriptionSummaryRow}*${data.commitmentYears}`,
+    result: totalSubscription,
+  };
+  setMoneyCell(summarySheet.getCell(`C${subscriptionSummaryRow}`));
+
+  const totalPriceRow = addDataRow(
+    [
+      "Total Price",
+      {
+        formula: `B${platformSummaryRow}+B${subscriptionSummaryRow}`,
+        result: totalBeforeDiscountPerYear,
+        kind: "money",
+      },
+      {
+        formula: `C${platformSummaryRow}+C${subscriptionSummaryRow}`,
+        result: totalBeforeDiscount,
+        kind: "money",
+      },
+    ],
+    false,
+    true
+  );
+
+  const commitmentDiscountRow = addDataRow(
+    [
+      "Commitment Discount",
+      {
+        formula: `B${totalPriceRow}*B${discountRow}`,
+        result: toNumericCurrency(
+          (totalBeforeDiscountRaw / data.commitmentYears) *
+            (summary.discountPercent / 100)
+        ),
+        kind: "money",
+      },
+      {
+        formula: `C${totalPriceRow}*B${discountRow}`,
+        result: discountAmount,
+        kind: "money",
+      },
+    ],
+    true
+  );
+
   currentRow++;
 
-  // GRAND TOTAL - Highlighted
-  summarySheet.mergeCells(`A${currentRow}:B${currentRow}`);
-  const grandTotalLabelCell = summarySheet.getCell(`A${currentRow}`);
+  // Grand total
+  const grandTotalRow = currentRow;
+
+  summarySheet.mergeCells(`A${grandTotalRow}:B${grandTotalRow}`);
+  const grandTotalLabelCell = summarySheet.getCell(`A${grandTotalRow}`);
   grandTotalLabelCell.value = "EQUIVALENT AFTER DISCOUNT";
   grandTotalLabelCell.font = { bold: true, size: 14, color: { argb: WHITE } };
-  grandTotalLabelCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: BRAND_PRIMARY } };
-  grandTotalLabelCell.alignment = { horizontal: "left", vertical: "middle" };
-  
-  const grandTotalValueCell = summarySheet.getCell(`C${currentRow}`);
-  // Formula: Total Price - Commitment Discount
-  grandTotalValueCell.value = {
-    formula: summary.discountPercent > 0 ? `C${startRow + 4}-C${startRow + 5}` : `C${startRow + 4}`,
-    result: getNumericValue(summary.finalTotal, data.currency)
+  grandTotalLabelCell.fill = {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: BRAND_PRIMARY },
   };
-  grandTotalValueCell.numFmt = '#,##0.00';
+  grandTotalLabelCell.alignment = { horizontal: "left", vertical: "middle" };
+
+  const grandTotalValueCell = summarySheet.getCell(`C${grandTotalRow}`);
+  grandTotalValueCell.value = {
+    formula: `C${totalPriceRow}-C${commitmentDiscountRow}`,
+    result: finalTotal,
+  };
+  setMoneyCell(grandTotalValueCell);
   grandTotalValueCell.font = { bold: true, size: 14, color: { argb: WHITE } };
-  grandTotalValueCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: BRAND_PRIMARY } };
-  grandTotalValueCell.alignment = { horizontal: "right", vertical: "middle" };
-  summarySheet.getRow(currentRow).height = 32;
-  
+  grandTotalValueCell.fill = {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: BRAND_PRIMARY },
+  };
+  summarySheet.getRow(grandTotalRow).height = 32;
+
   currentRow++;
 
-  // Add yearly equivalent row with formula
-  addDataRow([
-    "Yearly Equivalent", 
-    {
-      formula: `C${currentRow-1}/${data.commitmentYears}`,
-      result: getNumericValue(summary.finalTotal / data.commitmentYears, data.currency)
-    }, 
-    ""
-  ], false, true);
-  
+  addDataRow(
+    [
+      "Yearly Equivalent",
+      {
+        formula: `C${grandTotalRow}/${data.commitmentYears}`,
+        result: yearlyEquivalent,
+        kind: "money",
+      },
+      "",
+    ],
+    false,
+    true
+  );
+
   currentRow += 2;
 
-  // Footer note
   const footerCell = summarySheet.getCell(`A${currentRow}`);
   footerCell.value = `All prices are in ${currencyLabel} and exclude applicable taxes.`;
   footerCell.font = { italic: true, size: 10, color: { argb: "64748B" } };
   summarySheet.mergeCells(`A${currentRow}:C${currentRow}`);
 
-  // ============ Sheet 2: Line Items Detail ============
+  // =========================================================
+  // SHEET 2: LINE ITEMS
+  // =========================================================
   const lineItemsSheet = workbook.addWorksheet("Line Items");
-  
+
   lineItemsSheet.columns = [
-    { width: 25 },  // Line Item
-    { width: 20 },  // Asset Type
-    { width: 28 },  // Description
-    { width: 12 },  // Size
-    { width: 10 },  // Quantity
-    { width: 14 },  // Sustainability
-    { width: 10 },  // Security
-    { width: 16 },  // Security Channels
-    { width: 10 },  // Mobility
-    { width: 16 },  // Mobility Channels
-    { width: 10 },  // Insight
-    { width: 12 },  // Support Plan
+    { width: 25 },
+    { width: 20 },
+    { width: 28 },
+    { width: 12 },
+    { width: 10 },
+    { width: 14 },
+    { width: 10 },
+    { width: 16 },
+    { width: 10 },
+    { width: 16 },
+    { width: 10 },
+    { width: 12 },
   ];
 
-  // Header row
   lineItemsSheet.mergeCells("A1:L1");
   const lineItemsHeader = lineItemsSheet.getCell("A1");
   lineItemsHeader.value = "LINE ITEMS DETAIL";
   lineItemsHeader.font = { bold: true, size: 20, color: { argb: WHITE } };
-  lineItemsHeader.fill = { type: "pattern", pattern: "solid", fgColor: { argb: BRAND_PRIMARY } };
+  lineItemsHeader.fill = {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: BRAND_PRIMARY },
+  };
   lineItemsHeader.alignment = { horizontal: "center", vertical: "middle" };
   lineItemsSheet.getRow(1).height = 40;
 
-  // Table headers
   const headers = [
-    "Line Item", "Asset Type", "Description", "Size (sqm)", "Quantity", "Sustainability",
-    "Security", "Sec. Channels", "Mobility", "Mob. Channels", "Insight", "Support"
+    "Line Item",
+    "Asset Type",
+    "Description",
+    "Size (sqm)",
+    "Quantity",
+    "Sustainability",
+    "Security",
+    "Sec. Channels",
+    "Mobility",
+    "Mob. Channels",
+    "Insight",
+    "Support",
   ];
-  
+
   const headerRow = lineItemsSheet.getRow(3);
   headers.forEach((header, index) => {
     const cell = headerRow.getCell(index + 1);
     cell.value = header;
     cell.font = { bold: true, size: 10, color: { argb: WHITE } };
-    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: BRAND_ACCENT } };
-    cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+    cell.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: BRAND_ACCENT },
+    };
+    cell.alignment = {
+      horizontal: "center",
+      vertical: "middle",
+      wrapText: true,
+    };
     cell.border = {
       bottom: { style: "medium", color: { argb: BRAND_PRIMARY } },
     };
   });
   lineItemsSheet.getRow(3).height = 28;
 
-  // Data rows
   let currentDataRow = 4;
-  
+
   data.lineItems.forEach((item, index) => {
-    // Main line item
     const mainRow = lineItemsSheet.getRow(currentDataRow);
     const isAlternate = currentDataRow % 2 === 0;
-    
+
     const mainValues = [
       `Line Item ${index + 1}`,
       item.subMainAsset || item.assetType || "-",
@@ -385,29 +568,35 @@ export const generateClientQuoteExcel = async (data: ClientQuoteData): Promise<B
       item.insight ? "Y" : "N",
       item.supportPlan || "-",
     ];
-    
+
     mainValues.forEach((value, colIndex) => {
       const cell = mainRow.getCell(colIndex + 1);
       cell.value = value;
       cell.font = { bold: true, size: 10 };
       cell.alignment = { horizontal: "center", vertical: "middle" };
+
       if (isAlternate) {
-        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: GRAY_LIGHT } };
+        cell.fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: GRAY_LIGHT },
+        };
       }
+
       cell.border = {
         bottom: { style: "thin", color: { argb: GRAY_BORDER } },
         left: { style: "thin", color: { argb: GRAY_BORDER } },
         right: { style: "thin", color: { argb: GRAY_BORDER } },
       };
     });
+
     currentDataRow++;
 
-    // Sub-line items if they exist
     if (item.subLineItems && item.subLineItems.length > 0) {
       item.subLineItems.forEach((subItem, subIndex) => {
         const subRow = lineItemsSheet.getRow(currentDataRow);
         const isSubAlternate = currentDataRow % 2 === 0;
-        
+
         const subValues = [
           `  └─ Sub ${subIndex + 1}`,
           subItem.assetType || "-",
@@ -422,27 +611,36 @@ export const generateClientQuoteExcel = async (data: ClientQuoteData): Promise<B
           subItem.insight ? "Y" : "N",
           subItem.supportPlan || "-",
         ];
-        
+
         subValues.forEach((value, colIndex) => {
           const cell = subRow.getCell(colIndex + 1);
           cell.value = value;
           cell.font = { size: 10, italic: true };
           cell.alignment = { horizontal: "center", vertical: "middle" };
+
           if (isSubAlternate) {
-            cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "F0F4F8" } };
+            cell.fill = {
+              type: "pattern",
+              pattern: "solid",
+              fgColor: { argb: "F0F4F8" },
+            };
           }
+
           cell.border = {
             bottom: { style: "thin", color: { argb: GRAY_BORDER } },
             left: { style: "thin", color: { argb: GRAY_BORDER } },
             right: { style: "thin", color: { argb: GRAY_BORDER } },
           };
         });
+
         currentDataRow++;
       });
     }
   });
 
-  // Generate the Excel file as a Blob
   const buffer = await workbook.xlsx.writeBuffer();
-  return new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+
+  return new Blob([buffer], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
 };
