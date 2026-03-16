@@ -90,12 +90,37 @@ export const generateClientQuoteExcel = async (data: ClientQuoteData): Promise<B
     currentRow++;
   };
 
-  // Data row helper
-  const addDataRow = (values: string[], isAlternate = false, isBold = false) => {
+  // Helper to get raw numeric value (without currency formatting)
+  const getNumericValue = (amount: number, currencyCode: string): number => {
+    const currency = getCurrencyByCode(currencyCode);
+    return amount * currency.rate;
+  };
+
+  // Data row helper - updated to handle numeric cells and formulas
+  const addDataRow = (values: (string | number | { formula: string; result: number })[], isAlternate = false, isBold = false) => {
     const row = summarySheet.getRow(currentRow);
     values.forEach((value, index) => {
       const cell = row.getCell(index + 1);
-      cell.value = value;
+      
+      // Handle different value types
+      if (typeof value === 'object' && value.formula) {
+        // Excel formula
+        cell.value = {
+          formula: value.formula,
+          result: value.result
+        };
+        cell.numFmt = index >= 1 ? '#,##0.00' : 'General'; // Number format without $ sign
+      } else if (typeof value === 'number') {
+        // Numeric value
+        cell.value = value;
+        cell.numFmt = index >= 1 ? '#,##0.00' : 'General'; // Number format without $ sign
+      } else {
+        // Text value
+        cell.value = value;
+        cell.numFmt = 'General';
+      }
+      
+      // Styling
       cell.font = { bold: isBold, size: 11 };
       if (isAlternate) {
         cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: GRAY_LIGHT } };
@@ -160,26 +185,94 @@ export const generateClientQuoteExcel = async (data: ClientQuoteData): Promise<B
   // ANNUAL PLATFORM FEE
   addSectionHeader("ANNUAL PLATFORM FEE");
   addTableHeader(["Item", `Yearly Price (${currencyInfo.code})`, `Total Commitment Price (${currencyInfo.code})`]);
+  
   const yearlyPlatform = summary.yearlyPlatformFee;
   const totalPlatform = yearlyPlatform * data.commitmentYears;
   const totalPlatformWithDiscount = totalPlatform * (1 - summary.discountPercent / 100);
-  addDataRow(["Platform Subscription Fee", formatCurrency(yearlyPlatform), formatCurrency(totalPlatformWithDiscount)]);
+  
+  // Add platform fee with numeric values and formula
+  const platformRow = currentRow + 1;
+  addDataRow([
+    "Platform Subscription Fee", 
+    yearlyPlatform, 
+    {
+      formula: `B${platformRow}*${data.commitmentYears}*(1-${summary.discountPercent/100})`,
+      result: totalPlatformWithDiscount
+    }
+  ]);
 
   currentRow++;
 
   // QUOTE SUMMARY
   addSectionHeader("QUOTE SUMMARY");
   
+  // Add discount input row
+  const startRow = currentRow;
+  addDataRow(["Discount (%)", summary.discountPercent / 100, ""], false, false);
+  
+  currentRow++;
+  
   const subscriptionGrandTotal = (summary.yearOneSubscription - summary.yearlyPlatformFee) * data.commitmentYears;
   const platformFeeTotal = summary.yearlyPlatformFee * data.commitmentYears;
   const discountMultiplier = (1 - summary.discountPercent / 100);
   
-  addDataRow([`Platform Fee (${data.commitmentYears} Year${data.commitmentYears > 1 ? "s" : ""})`, formatCurrency(summary.yearlyPlatformFee), formatCurrency(platformFeeTotal * discountMultiplier)]);
-  addDataRow([`Subscription Total (${data.commitmentYears} Year${data.commitmentYears > 1 ? "s" : ""})`, formatCurrency(summary.yearOneSubscription - summary.yearlyPlatformFee), formatCurrency(subscriptionGrandTotal * discountMultiplier)], true);
-  addDataRow(["Total Price", formatCurrency(summary.totalBeforeDiscount / data.commitmentYears), formatCurrency(summary.totalBeforeDiscount)], false, true);
+  // Add summary rows with formulas
+  addDataRow([
+    `Platform Fee (${data.commitmentYears} Year${data.commitmentYears > 1 ? "s" : ""})`, 
+    getNumericValue(summary.yearlyPlatformFee, data.currency), 
+    getNumericValue(platformFeeTotal * discountMultiplier, data.currency)
+  ]);
+  
+  // Set C20 formula directly
+  const platformCellC20 = summarySheet.getCell(`C20`);
+  platformCellC20.value = {
+    formula: `B20*${data.commitmentYears}`,
+    result: getNumericValue(platformFeeTotal * discountMultiplier, data.currency)
+  };
+  platformCellC20.numFmt = '#,##0.00';
+  
+  // Set C25 formula directly
+  const platformCellC25 = summarySheet.getCell(`C25`);
+  platformCellC25.value = {
+    formula: `B25*${data.commitmentYears}`,
+    result: getNumericValue(platformFeeTotal * discountMultiplier, data.currency)
+  };
+  platformCellC25.numFmt = '#,##0.00';
+  
+  addDataRow([
+    `Subscription Total (${data.commitmentYears} Year${data.commitmentYears > 1 ? "s" : ""})`, 
+    getNumericValue(summary.yearOneSubscription - summary.yearlyPlatformFee, data.currency), 
+    {
+      formula: `B${startRow + 3}*${data.commitmentYears}*(1-B${startRow + 1})`,
+      result: getNumericValue(subscriptionGrandTotal * discountMultiplier, data.currency)
+    }
+  ], true);
+  
+  // Total Price should be sum of Platform Fee + Subscription Total
+  addDataRow([
+    "Total Price", 
+    {
+      formula: `B${startRow + 2}+B${startRow + 3}`,
+      result: getNumericValue(summary.totalBeforeDiscount / data.commitmentYears, data.currency)
+    }, 
+    {
+      formula: `C${startRow + 2}+C${startRow + 3}`,
+      result: getNumericValue(summary.totalBeforeDiscount * discountMultiplier, data.currency)
+    }
+  ], false, true);
 
   if (summary.discountPercent > 0) {
-    addDataRow([`Commitment Discount (${summary.discountPercent}%)`, formatCurrency(summary.discountAmount / data.commitmentYears), formatCurrency(summary.discountAmount)], true);
+    addDataRow([
+      `Commitment Discount (${summary.discountPercent}%)`, 
+      {
+        formula: `B27*B23`,
+        result: getNumericValue(summary.discountAmount / data.commitmentYears, data.currency)
+      }, 
+      {
+        formula: `C27*B23`,
+        result: getNumericValue(summary.discountAmount, data.currency)
+      }
+    ], true);
   }
 
   currentRow++;
@@ -193,7 +286,12 @@ export const generateClientQuoteExcel = async (data: ClientQuoteData): Promise<B
   grandTotalLabelCell.alignment = { horizontal: "left", vertical: "middle" };
   
   const grandTotalValueCell = summarySheet.getCell(`C${currentRow}`);
-  grandTotalValueCell.value = formatCurrency(summary.finalTotal);
+  // Formula: Total Price - Commitment Discount
+  grandTotalValueCell.value = {
+    formula: summary.discountPercent > 0 ? `C${startRow + 4}-C${startRow + 5}` : `C${startRow + 4}`,
+    result: getNumericValue(summary.finalTotal, data.currency)
+  };
+  grandTotalValueCell.numFmt = '#,##0.00';
   grandTotalValueCell.font = { bold: true, size: 14, color: { argb: WHITE } };
   grandTotalValueCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: BRAND_PRIMARY } };
   grandTotalValueCell.alignment = { horizontal: "right", vertical: "middle" };
@@ -201,8 +299,15 @@ export const generateClientQuoteExcel = async (data: ClientQuoteData): Promise<B
   
   currentRow++;
 
-  // Add yearly equivalent row for clarity
-  addDataRow(["Yearly Equivalent", formatCurrency(summary.finalTotal / data.commitmentYears), ""], false, true);
+  // Add yearly equivalent row with formula
+  addDataRow([
+    "Yearly Equivalent", 
+    {
+      formula: `C${currentRow-1}/${data.commitmentYears}`,
+      result: getNumericValue(summary.finalTotal / data.commitmentYears, data.currency)
+    }, 
+    ""
+  ], false, true);
   
   currentRow += 2;
 
