@@ -61,7 +61,7 @@ const ClientDetail = () => {
           </div>
           <div className="flex gap-2">
             <Button variant="outline">Edit Client</Button>
-            <Link to="/quotes/new">
+            <Link to="/quote-builder">
               <Button>Create Quote</Button>
             </Link>
           </div>
@@ -133,7 +133,7 @@ const ClientDetail = () => {
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle>Quote History</CardTitle>
-              <Link to="/quotes/new">
+              <Link to="/quote-builder">
                 <Button size="sm" variant="outline">New Quote</Button>
               </Link>
             </div>

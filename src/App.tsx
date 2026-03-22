@@ -25,7 +25,7 @@ const App = () => (
           <Route path="/clients/:id" element={<ClientDetail />} />
           <Route path="/quotes" element={<Quotes />} />
           <Route path="/quotes/:id" element={<QuoteDetail />} />
-          <Route path="/quotes/new" element={<QuoteBuilder />} />
+          <Route path="/quote-builder" element={<QuoteBuilder />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

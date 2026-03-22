@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator";
 import { Plus, Save, FileText, FileSpreadsheet } from "lucide-react";
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { LineItem } from "@/types/pricing";
 import { calculateQuoteTotals, defaultPricingRates } from "@/lib/pricingCalculations";
 import { toast } from "sonner";
@@ -17,9 +17,16 @@ import { ClientQuoteData } from "@/lib/clientQuotePDF";
 import { generateClientQuoteExcel } from "@/lib/clientQuoteExcel";
 import { getCurrencies, CurrencyCode, getCurrencyByCode, formatCurrencyValue, updateCurrencyRates } from "@/lib/currencies";
 import LineItemGroup from "@/components/LineItemGroup";
+import { quoteService, Quote } from "@/lib/supabase";
 
 const QuoteBuilder = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [editingQuoteId, setEditingQuoteId] = useState<string | null>(null);
+  const [quoteName, setQuoteName] = useState<string>("");
+  const [clientName, setClientName] = useState<string>("");
+  
   const [lineItems, setLineItems] = useState<LineItem[]>([
     {
       id: "1",
@@ -55,6 +62,103 @@ const QuoteBuilder = () => {
     
     fetchRates();
   }, []);
+
+  // Load quote data if in edit mode
+  useEffect(() => {
+    const quoteId = searchParams.get('edit');
+    if (quoteId) {
+      setIsEditMode(true);
+      setEditingQuoteId(quoteId);
+      loadQuoteForEdit(quoteId);
+    }
+  }, [searchParams]);
+
+  const loadQuoteForEdit = async (quoteId: string) => {
+    try {
+      const quote = await quoteService.getQuoteById(quoteId);
+      setQuoteName(quote.quote_name);
+      setClientName(quote.client_name);
+      setMainAsset(quote.main_asset);
+      setCommitmentYears(quote.commitment_years);
+      setDiscountPercent(quote.discount_percent);
+      setCurrency(quote.currency as CurrencyCode);
+      setLineItems(quote.line_items);
+      toast.success("Quote loaded for editing");
+    } catch (error) {
+      console.error("Failed to load quote:", error);
+      toast.error("Failed to load quote");
+      navigate('/');
+    }
+  };
+
+  const handleSaveQuote = async () => {
+    console.log("🔍 Starting save quote process...");
+    
+    if (!quoteName.trim() || !clientName.trim()) {
+      console.log("❌ Validation failed: missing quote name or client name");
+      toast.error("Please enter both quote name and client name");
+      return;
+    }
+
+    if (!mainAsset.trim()) {
+      console.log("❌ Validation failed: missing main asset");
+      toast.error("Please select a main asset");
+      return;
+    }
+
+    console.log("✅ Validation passed, preparing quote data...");
+    console.log("📊 Quote data:", { quoteName, clientName, mainAsset, commitmentYears, discountPercent, currency });
+
+    try {
+      const totals = calculateQuoteTotals(lineItems, defaultPricingRates);
+      console.log("💰 Totals calculated:", totals);
+      
+      // Platform subscription - yearly recurring fee
+      const yearlyPlatformFee = 50000;
+      
+      // Calculate multi-year totals with discount
+      const yearlyTotal = totals.grandTotal + yearlyPlatformFee;
+      const commitmentTotal = yearlyTotal * commitmentYears;
+      const discountAmount = commitmentTotal * (discountPercent / 100);
+      const totalBeforeDiscount = commitmentTotal;
+      const finalTotal = commitmentTotal - discountAmount;
+      const yearOneSubscription = totals.grandTotal + yearlyPlatformFee;
+      
+      const quoteData: Omit<Quote, 'id' | 'created_at' | 'updated_at'> = {
+        quote_name: quoteName,
+        client_name: clientName,
+        main_asset: mainAsset,
+        commitment_years: commitmentYears,
+        discount_percent: discountPercent,
+        currency: currency,
+        yearly_platform_fee: yearlyPlatformFee,
+        year_one_subscription: yearOneSubscription,
+        total_before_discount: totalBeforeDiscount,
+        discount_amount: discountAmount,
+        final_total: finalTotal,
+        line_items: lineItems,
+        rates: defaultPricingRates,
+      };
+
+      console.log("📦 Quote data prepared:", quoteData);
+
+      if (isEditMode && editingQuoteId) {
+        console.log("🔄 Updating existing quote:", editingQuoteId);
+        await quoteService.updateQuote(editingQuoteId, quoteData);
+        toast.success("Quote updated successfully!");
+      } else {
+        console.log("💾 Saving new quote...");
+        const result = await quoteService.saveQuote(quoteData);
+        console.log("✅ Quote saved successfully:", result);
+        toast.success("Quote saved successfully!");
+      }
+      
+      navigate('/');
+    } catch (error) {
+      console.error("💥 Failed to save quote:", error);
+      toast.error(`Failed to save quote: ${error.message || 'Unknown error'}`);
+    }
+  };
   
   const currencyInfo = getCurrencyByCode(currency);
   const formatCurrency = (amount: number, showDecimals = false) => 
@@ -269,11 +373,15 @@ const QuoteBuilder = () => {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-foreground">New Quote</h1>
-            <p className="text-muted-foreground mt-1">Create a pricing quote for your client</p>
+            <h1 className="text-3xl font-bold text-foreground">
+              {isEditMode ? "Edit Quote" : "New Quote"}
+            </h1>
+            <p className="text-muted-foreground mt-1">
+              {isEditMode ? "Modify your pricing quote" : "Create a pricing quote for your client"}
+            </p>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" size="lg" onClick={() => navigate("/quotes")}>
+            <Button variant="outline" size="lg" onClick={() => navigate("/dashboard")}>
               Cancel
             </Button>
             <Button 
@@ -294,9 +402,9 @@ const QuoteBuilder = () => {
               <FileSpreadsheet className="h-4 w-4" />
               Generate Client Quote (Excel)
             </Button>
-            <Button size="lg" className="gap-2" onClick={handleSave}>
+            <Button size="lg" className="gap-2" onClick={handleSaveQuote}>
               <Save className="h-4 w-4" />
-              Save Quote
+              {isEditMode ? "Update Quote" : "Save Quote"}
             </Button>
           </div>
         </div>
@@ -309,11 +417,19 @@ const QuoteBuilder = () => {
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label>Client Name</Label>
-                <Input placeholder="Select or enter client name" />
+                <Input 
+                  placeholder="Select or enter client name" 
+                  value={clientName}
+                  onChange={(e) => setClientName(e.target.value)}
+                />
               </div>
               <div className="space-y-2">
                 <Label>Quote Name</Label>
-                <Input placeholder="Q-2025-001" />
+                <Input 
+                  placeholder="Q-2025-001" 
+                  value={quoteName}
+                  onChange={(e) => setQuoteName(e.target.value)}
+                />
               </div>
             </div>
             
