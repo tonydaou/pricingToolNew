@@ -47,6 +47,37 @@ const Dashboard = () => {
     }
   };
 
+  // Calculate quotes created this month
+  const getQuotesThisMonth = () => {
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+    
+    return allQuotes.filter(quote => {
+      if (!quote.created_at) return false;
+      const quoteDate = new Date(quote.created_at);
+      return quoteDate.getMonth() === currentMonth && quoteDate.getFullYear() === currentYear;
+    });
+  };
+
+  // Calculate month-over-month change
+  const getMonthOverMonthChange = () => {
+    const now = new Date();
+    const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+    
+    const thisMonthQuotes = getQuotesThisMonth().length;
+    const lastMonthQuotes = allQuotes.filter(quote => {
+      if (!quote.created_at) return false;
+      const quoteDate = new Date(quote.created_at);
+      return quoteDate >= lastMonth && quoteDate <= lastMonthEnd;
+    }).length;
+    
+    if (lastMonthQuotes === 0) return thisMonthQuotes > 0 ? '+100%' : '0%';
+    const change = ((thisMonthQuotes - lastMonthQuotes) / lastMonthQuotes) * 100;
+    return `${change >= 0 ? '+' : ''}${change.toFixed(0)}%`;
+  };
+
   const handleEditQuote = (quoteId: string) => {
     navigate(`/quote-builder?edit=${quoteId}`);
   };
@@ -104,8 +135,8 @@ const Dashboard = () => {
     },
     {
       title: "Quotes This Month",
-      value: "18",
-      change: "+8%",
+      value: getQuotesThisMonth().length.toString(),
+      change: getMonthOverMonthChange(),
       icon: FileText,
       color: "text-accent",
     },
