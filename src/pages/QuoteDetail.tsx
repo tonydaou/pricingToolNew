@@ -1,13 +1,16 @@
 import Layout from "@/components/Layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, FileText, Download, Mail, Edit, Trash2 } from "lucide-react";
+import { ArrowLeft, FileText, Download, Edit, Trash2 } from "lucide-react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { quoteService, Quote } from "@/lib/supabase";
 import { formatCurrencyValue } from "@/lib/currencies";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { generateClientQuoteExcel } from "@/lib/clientQuoteExcel";
+import { pdf } from "@react-pdf/renderer";
+import ClientQuotePDF from "@/components/ClientQuotePDF";
 
 const QuoteDetail = () => {
   const { id } = useParams();
@@ -68,8 +71,79 @@ const QuoteDetail = () => {
 
   const handleDownloadPDF = async () => {
     if (!quote) return;
-    // TODO: Implement PDF download functionality
-    toast.info("PDF download coming soon!");
+    try {
+      toast.loading("Generating PDF...");
+      
+      // Use the existing ClientQuotePDF component
+      const pdfDoc = (
+        <ClientQuotePDF 
+          data={{
+            clientName: quote.client_name,
+            quoteName: quote.quote_name,
+            quoteDate: new Date(quote.created_at!).toLocaleDateString(),
+            mainAsset: quote.main_asset,
+            commitmentYears: quote.commitment_years,
+            discountPercent: quote.discount_percent,
+            lineItems: quote.line_items,
+            rates: quote.rates,
+            currency: quote.currency as any,
+          }} 
+        />
+      );
+
+      // Generate PDF blob
+      const pdfBlob = await pdf(pdfDoc).toBlob();
+      
+      // Download the PDF
+      const url = window.URL.createObjectURL(pdfBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${quote.quote_name.replace(/[^a-zA-Z0-9]/g, '_')}_quote.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      
+      toast.success("PDF downloaded successfully");
+    } catch (error) {
+      console.error("Failed to download PDF:", error);
+      toast.error("Failed to download PDF");
+    }
+  };
+
+  const handleDownloadExcel = async () => {
+    if (!quote) return;
+    try {
+      toast.loading("Generating Excel file...");
+      
+      const excelBuffer = await generateClientQuoteExcel({
+        clientName: quote.client_name,
+        quoteName: quote.quote_name,
+        quoteDate: new Date(quote.created_at!).toLocaleDateString(),
+        mainAsset: quote.main_asset,
+        lineItems: quote.line_items,
+        rates: quote.rates,
+        commitmentYears: quote.commitment_years,
+        discountPercent: quote.discount_percent,
+        currency: quote.currency as any,
+      });
+
+      // Create blob and download
+      const blob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${quote.quote_name.replace(/[^a-zA-Z0-9]/g, '_')}_quote.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      
+      toast.success("Excel file downloaded successfully");
+    } catch (error) {
+      console.error("Failed to download Excel:", error);
+      toast.error("Failed to download Excel file");
+    }
   };
 
   if (loading) {
@@ -91,8 +165,8 @@ const QuoteDetail = () => {
         <div className="flex items-center justify-center min-h-96">
           <div className="text-center">
             <p className="text-muted-foreground mb-4">Quote not found</p>
-            <Link to="/quotes">
-              <Button>Back to Quotes</Button>
+            <Link to="/">
+              <Button>Back to Dashboard</Button>
             </Link>
           </div>
         </div>
@@ -105,7 +179,7 @@ const QuoteDetail = () => {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <Link to="/quotes">
+            <Link to="/">
               <Button variant="outline" size="icon">
                 <ArrowLeft className="h-4 w-4" />
               </Button>
@@ -127,13 +201,13 @@ const QuoteDetail = () => {
               <Trash2 className="h-4 w-4" />
               Delete
             </Button>
-            <Button variant="outline" className="gap-2">
-              <Mail className="h-4 w-4" />
-              Send
-            </Button>
-            <Button className="gap-2" onClick={handleDownloadPDF}>
+            <Button variant="outline" className="gap-2" onClick={handleDownloadPDF}>
               <Download className="h-4 w-4" />
               Download PDF
+            </Button>
+            <Button className="gap-2" onClick={handleDownloadExcel}>
+              <Download className="h-4 w-4" />
+              Download Excel
             </Button>
           </div>
         </div>

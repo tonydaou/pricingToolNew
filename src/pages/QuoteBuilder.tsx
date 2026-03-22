@@ -381,7 +381,7 @@ const QuoteBuilder = () => {
             </p>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" size="lg" onClick={() => navigate("/dashboard")}>
+            <Button variant="outline" size="lg" onClick={() => navigate("/")}>
               Cancel
             </Button>
             <Button 
