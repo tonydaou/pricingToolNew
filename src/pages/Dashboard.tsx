@@ -229,7 +229,7 @@ const Dashboard = () => {
                           <div className="font-medium text-foreground">
                             {formatCurrencyValue(quote.final_total, quote.currency)}
                           </div>
-                          <div className="flex gap-1 mt-1">
+                          <div className="flex gap-1 mt-1 justify-end">
                             <Button
                               size="sm"
                               variant="ghost"
@@ -328,7 +328,7 @@ const Dashboard = () => {
                             <div className="font-medium text-foreground">
                               {formatCurrencyValue(quote.final_total, quote.currency)}
                             </div>
-                            <div className="flex gap-1 mt-1">
+                            <div className="flex gap-1 mt-1 justify-end">
                               <Button
                                 size="sm"
                                 variant="ghost"
