@@ -27,6 +27,44 @@ const QuoteBuilder = () => {
   const [quoteName, setQuoteName] = useState<string>("");
   const [clientName, setClientName] = useState<string>("");
   
+  // Auto-increment quote name
+  const getNextQuoteNumber = async () => {
+    try {
+      const allQuotes = await quoteService.getAllQuotes();
+      const currentYear = new Date().getFullYear();
+      
+      // Filter quotes from current year
+      const currentYearQuotes = allQuotes.filter(quote => {
+        if (!quote.created_at) return false;
+        const quoteDate = new Date(quote.created_at);
+        return quoteDate.getFullYear() === currentYear;
+      });
+      
+      // Extract existing quote numbers from current year
+      const existingNumbers = currentYearQuotes
+        .map(quote => {
+          const match = quote.quote_name.match(/Q-(\d{4})-(\d+)/);
+          return match ? parseInt(match[2]) : 0;
+        })
+        .filter(num => num > 0);
+      
+      // Find next available number
+      const nextNumber = existingNumbers.length > 0 ? Math.max(...existingNumbers) + 1 : 1;
+      
+      return `Q-${currentYear}-${nextNumber.toString().padStart(4, '0')}`;
+    } catch (error) {
+      console.error("Error getting next quote number:", error);
+      return `Q-${new Date().getFullYear()}-0001`;
+    }
+  };
+
+  // Set initial quote name on component mount
+  useEffect(() => {
+    if (!quoteName && !isEditMode) {
+      getNextQuoteNumber().then(setQuoteName);
+    }
+  }, [isEditMode]);
+  
   const [lineItems, setLineItems] = useState<LineItem[]>([
     {
       id: "1",

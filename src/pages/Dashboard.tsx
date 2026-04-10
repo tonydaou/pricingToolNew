@@ -119,6 +119,52 @@ const Dashboard = () => {
     quote.client_name.toLowerCase().includes(searchTerm.toLowerCase())
   );
   
+  // Calculate largest deal this month
+  const getLargestDealThisMonth = () => {
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+    
+    const currentMonthQuotes = allQuotes.filter(quote => {
+      if (!quote.created_at) return false;
+      const quoteDate = new Date(quote.created_at);
+      return quoteDate.getMonth() === currentMonth && quoteDate.getFullYear() === currentYear;
+    });
+    
+    if (currentMonthQuotes.length === 0) return 0;
+    return Math.max(...currentMonthQuotes.map(quote => quote.final_total || 0));
+  };
+
+  // Calculate month-over-month revenue change
+  const getRevenueChange = () => {
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+    
+    const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+    
+    const currentMonthRevenue = allQuotes
+      .filter(quote => {
+        if (!quote.created_at) return false;
+        const quoteDate = new Date(quote.created_at);
+        return quoteDate.getMonth() === currentMonth && quoteDate.getFullYear() === currentYear;
+      })
+      .reduce((total, quote) => total + (quote.final_total || 0), 0);
+    
+    const lastMonthRevenue = allQuotes
+      .filter(quote => {
+        if (!quote.created_at) return false;
+        const quoteDate = new Date(quote.created_at);
+        return quoteDate >= lastMonth && quoteDate <= lastMonthEnd;
+      })
+      .reduce((total, quote) => total + (quote.final_total || 0), 0);
+    
+    if (lastMonthRevenue === 0) return currentMonthRevenue > 0 ? '+100%' : '0%';
+    const change = ((currentMonthRevenue - lastMonthRevenue) / lastMonthRevenue) * 100;
+    return `${change >= 0 ? '+' : ''}${change.toFixed(1)}%`;
+  };
+
   // Search results count
   const searchResultsCount = showAllQuotes ? filteredQuotes.length : 
     recentQuotes.filter(quote => 
@@ -126,13 +172,6 @@ const Dashboard = () => {
       quote.client_name.toLowerCase().includes(searchTerm.toLowerCase())
     ).length;
   const stats = [
-    {
-      title: "Active Clients",
-      value: "24",
-      change: "+12%",
-      icon: Users,
-      color: "text-primary",
-    },
     {
       title: "Quotes This Month",
       value: getQuotesThisMonth().length.toString(),
@@ -142,15 +181,31 @@ const Dashboard = () => {
     },
     {
       title: "Revenue Pipeline",
-      value: "$245K",
-      change: "+24%",
+      value: formatCurrencyValue(
+        allQuotes.reduce((total, quote) => total + (quote.final_total || 0), 0),
+        allQuotes[0]?.currency || "USD"
+      ),
+      change: getRevenueChange(),
       icon: DollarSign,
       color: "text-success",
     },
     {
-      title: "Conversion Rate",
-      value: "68%",
-      change: "+5%",
+      title: "Average Deal Size",
+      value: formatCurrencyValue(
+        allQuotes.length > 0 ? allQuotes.reduce((total, quote) => total + (quote.final_total || 0), 0) / allQuotes.length : 0,
+        allQuotes[0]?.currency || "USD"
+      ),
+      change: "+8%",
+      icon: TrendingUp,
+      color: "text-primary",
+    },
+    {
+      title: "Largest Deal This Month",
+      value: formatCurrencyValue(
+        getLargestDealThisMonth(),
+        allQuotes[0]?.currency || "USD"
+      ),
+      change: "+15%",
       icon: TrendingUp,
       color: "text-primary",
     },
